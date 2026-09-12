@@ -290,6 +290,19 @@ const createPipelineStore: StateCreator<
     });
     usePipelineStore.temporal.getState().resume();
   },
+  undoLastChange: () => {
+    if (get().readOnly) return;
+    usePipelineStore.temporal.getState().undo();
+    // zundo's undo() sets nodes/edges via the store's raw set(), bypassing setNodes/setEdges
+    // — the only places that trigger autoSaveCurrentPipline() — so it has to be called here
+    // explicitly, or an undo restores the canvas without ever telling the server.
+    get().autoSaveCurrentPipline();
+  },
+  redoLastChange: () => {
+    if (get().readOnly) return;
+    usePipelineStore.temporal.getState().redo();
+    get().autoSaveCurrentPipline();
+  },
 })
 
 const createPipelineManagerStore: StateCreator<

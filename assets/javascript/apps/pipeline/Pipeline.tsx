@@ -57,6 +57,8 @@ export default function Pipeline() {
   const currentPipeline = usePipelineStore((state) => state.currentPipeline);
   const autoSaveCurrentPipline = usePipelineStore((state) => state.autoSaveCurrentPipline);
   const savePipeline = usePipelineStore((state) => state.savePipeline);
+  const undoLastChange = usePipelineStore((state) => state.undoLastChange);
+  const redoLastChange = usePipelineStore((state) => state.redoLastChange);
   const canUndo = useStore(usePipelineStore.temporal, (state) => state.pastStates.length > 0);
   const canRedo = useStore(usePipelineStore.temporal, (state) => state.futureStates.length > 0);
   const { nodeSchemas } = getCachedData();
@@ -136,11 +138,11 @@ export default function Pipeline() {
   useHotkeys("ctrl+s", () => manualSaveCurrentPipeline(), {preventDefault: true});
   useHotkeys(["ctrl+z", "meta+z"], () => {
     if (readOnly) return;
-    usePipelineStore.temporal.getState().undo();
+    undoLastChange();
   }, {preventDefault: true});
   useHotkeys(["ctrl+shift+z", "meta+shift+z", "ctrl+y"], () => {
     if (readOnly) return;
-    usePipelineStore.temporal.getState().redo();
+    redoLastChange();
   }, {preventDefault: true});
 
   const onSelectionChange = useCallback(
@@ -208,14 +210,14 @@ export default function Pipeline() {
               <ControlButton
                 title="Undo"
                 disabled={!canUndo}
-                onClick={() => usePipelineStore.temporal.getState().undo()}
+                onClick={undoLastChange}
               >
                 <i className="fa-solid fa-rotate-left"></i>
               </ControlButton>
               <ControlButton
                 title="Redo"
                 disabled={!canRedo}
-                onClick={() => usePipelineStore.temporal.getState().redo()}
+                onClick={redoLastChange}
               >
                 <i className="fa-solid fa-rotate-right"></i>
               </ControlButton>

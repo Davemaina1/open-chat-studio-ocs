@@ -16,8 +16,28 @@ function flushThrottle() {
 }
 
 function seed() {
+  // readOnly is reset explicitly: nothing else in this file resets it after a test sets it,
+  // so without this a read-only test leaks readOnly: true into whatever runs next.
+  usePipelineStore.setState({readOnly: false});
   usePipelineStore.getState().resetFlow({nodes: [nodeA, nodeB], edges: [edgeAB]});
   usePipelineStore.temporal.getState().clear();
+}
+
+// Autosave only fires once a pipeline is loaded (autoSaveCurrentPipline early-returns
+// without one), so the undo/redo-triggers-autosave tests need this seeded too.
+function seedCurrentPipeline() {
+  usePipelineStore.setState({
+    currentPipeline: {
+      id: BigInt(1),
+      team: "test-team",
+      name: "Test Pipeline",
+      data: {nodes: [nodeA, nodeB], edges: [edgeAB]},
+      description: "",
+      errors: {},
+    },
+    currentPipelineId: 1,
+    currentRevision: 0,
+  });
 }
 
 describe("pipelineStore undo/redo", () => {
@@ -119,5 +139,61 @@ describe("pipelineStore undo/redo", () => {
     expect(usePipelineStore.temporal.getState().pastStates).toHaveLength(1);
     usePipelineStore.temporal.getState().undo();
     expect(usePipelineStore.getState().nodes.find((n) => n.id === "a")?.position).toEqual({x: 0, y: 0});
+  });
+
+  // zundo's undo()/redo() call the store's raw set() directly, bypassing setNodes/setEdges —
+  // the only places that call autoSaveCurrentPipline(). Without an explicit trigger, undoing
+  // a change restores the canvas but never tells the server, so a reload right after would
+  // lose it.
+  test("undo triggers an autosave", () => {
+    seedCurrentPipeline();
+
+    usePipelineStore.getState().deleteNode("b");
+    flushThrottle();
+    // deleteNode's own autoSaveCurrentPipline() call already set this; reset it so the
+    // assertion below isolates undo's own trigger, not delete's.
+    usePipelineStore.setState({dirty: false});
+
+    usePipelineStore.getState().undoLastChange();
+
+    expect(usePipelineStore.getState().dirty).toBe(true);
+  });
+
+  test("redo triggers an autosave", () => {
+    seedCurrentPipeline();
+
+    usePipelineStore.getState().deleteNode("b");
+    flushThrottle();
+    usePipelineStore.getState().undoLastChange();
+    usePipelineStore.setState({dirty: false});
+
+    usePipelineStore.getState().redoLastChange();
+
+    expect(usePipelineStore.getState().dirty).toBe(true);
+  });
+
+  // Every other mutator in this store (setNodes, deleteNode, onConnect, ...) guards itself
+  // with `if (get().readOnly) return`, not just relying on the UI to check first. These two
+  // should match that, not just the UI-level check in Pipeline.tsx.
+  test("undoLastChange does nothing in read-only mode", () => {
+    usePipelineStore.getState().deleteNode("b");
+    flushThrottle();
+    usePipelineStore.setState({readOnly: true});
+
+    usePipelineStore.getState().undoLastChange();
+
+    expect(usePipelineStore.getState().nodes.map((n) => n.id)).toEqual(["a"]);
+  });
+
+  test("redoLastChange does nothing in read-only mode", () => {
+    usePipelineStore.getState().deleteNode("b");
+    flushThrottle();
+    usePipelineStore.setState({readOnly: false});
+    usePipelineStore.getState().undoLastChange();
+    usePipelineStore.setState({readOnly: true});
+
+    usePipelineStore.getState().redoLastChange();
+
+    expect(usePipelineStore.getState().nodes.map((n) => n.id).sort()).toEqual(["a", "b"]);
   });
 });
